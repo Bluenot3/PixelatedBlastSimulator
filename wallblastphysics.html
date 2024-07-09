@@ -1,0 +1,234 @@
+<html><head><base href="https://websim.ai/" /><title>HD Slow Motion Explosion Simulator with Shattering Wall and Reset</title><script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script><style>body { margin: 0; overflow: hidden; } canvas { width: 100%; height: 100%; } #resetButton { position: absolute; top: 10px; right: 10px; padding: 10px 20px; font-size: 16px; background-color: #4CAF50; color: white; border: none; cursor: pointer; } #resetButton:hover { background-color: #45a049; }</style></head><body>
+<div id="info" style="position: absolute; top: 10px; left: 10px; color: white; font-family: Arial; font-size: 14px;">HD Slow Motion Explosion Simulator with Shattering Wall</div>
+<button id="resetButton">Reset Wall</button>
+<script>
+let scene, camera, renderer, explosion, particles, wallPieces;
+let clock = new THREE.Clock();
+
+// Explosion parameters
+let params = {
+    speed: 0.5,
+    size: 1,
+    magnitude: 1,
+    objectType: 'Sphere',
+    wallDistance: 3,
+    wallThickness: 0.2,
+    explosionForce: 1,
+    gridSize: 20
+};
+
+function init() {
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.z = 8;
+
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Lighting
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    scene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(1, 1, 1);
+    scene.add(directionalLight);
+
+    createWall();
+    createExplosion();
+
+    // GUI
+    const gui = new dat.GUI();
+    gui.add(params, 'speed', 0.1, 2).name('Speed');
+    gui.add(params, 'size', 0.5, 2).name('Size').onChange(createExplosion);
+    gui.add(params, 'magnitude', 0.5, 2).name('Magnitude');
+    gui.add(params, 'objectType', ['Sphere', 'Cube', 'Cone']).name('Object Type').onChange(createExplosion);
+    gui.add(params, 'wallDistance', 1, 5).name('Wall Distance').onChange(createWall);
+    gui.add(params, 'wallThickness', 0.1, 0.5).name('Wall Thickness').onChange(createWall);
+    gui.add(params, 'explosionForce', 0.5, 2).name('Explosion Force');
+    gui.add(params, 'gridSize', 10, 30).step(1).name('Wall Grid Size').onChange(createWall);
+
+    // Reset button
+    const resetButton = document.getElementById('resetButton');
+    resetButton.addEventListener('click', resetWall);
+
+    animate();
+}
+
+function createWall() {
+    if (wallPieces) {
+        wallPieces.forEach(piece => scene.remove(piece));
+    }
+    
+    wallPieces = [];
+    const wallSize = 10;
+    const pieceSize = wallSize / params.gridSize;
+
+    for (let x = 0; x < params.gridSize; x++) {
+        for (let y = 0; y < params.gridSize; y++) {
+            const geometry = new THREE.BoxGeometry(pieceSize, pieceSize, params.wallThickness);
+            const material = new THREE.MeshPhongMaterial({
+                color: 0x8888ff,
+                transparent: true,
+                opacity: 0.7
+            });
+            const piece = new THREE.Mesh(geometry, material);
+            piece.position.set(
+                (x - params.gridSize / 2 + 0.5) * pieceSize,
+                (y - params.gridSize / 2 + 0.5) * pieceSize,
+                params.wallDistance
+            );
+            piece.userData.initialPosition = piece.position.clone();
+            piece.userData.initialRotation = piece.rotation.clone();
+            piece.userData.velocity = new THREE.Vector3();
+            piece.userData.angularVelocity = new THREE.Vector3();
+            piece.userData.broken = false;
+            scene.add(piece);
+            wallPieces.push(piece);
+        }
+    }
+}
+
+function resetWall() {
+    wallPieces.forEach(piece => {
+        piece.position.copy(piece.userData.initialPosition);
+        piece.rotation.copy(piece.userData.initialRotation);
+        piece.userData.velocity.set(0, 0, 0);
+        piece.userData.angularVelocity.set(0, 0, 0);
+        piece.userData.broken = false;
+        piece.material.opacity = 0.7;
+    });
+}
+
+function createExplosion() {
+    if (explosion) scene.remove(explosion);
+    
+    explosion = new THREE.Group();
+    particles = [];
+
+    const geometry = getGeometry();
+    const material = new THREE.MeshStandardMaterial({
+        color: 0xff5500,
+        metalness: 0.8,
+        roughness: 0.2,
+        emissive: 0xff0000,
+        emissiveIntensity: 0.5
+    });
+
+    for (let i = 0; i < 200; i++) {
+        const particle = new THREE.Mesh(geometry, material);
+        particle.position.set(
+            Math.random() - 0.5,
+            Math.random() - 0.5,
+            Math.random() - 0.5
+        );
+        particle.scale.setScalar(Math.random() * 0.2 + 0.05);
+        particles.push({
+            mesh: particle,
+            velocity: new THREE.Vector3(
+                Math.random() - 0.5,
+                Math.random() - 0.5,
+                Math.random() - 0.5
+            ).normalize(),
+            hasCollided: false
+        });
+        explosion.add(particle);
+    }
+
+    scene.add(explosion);
+}
+
+function getGeometry() {
+    switch(params.objectType) {
+        case 'Sphere':
+            return new THREE.SphereGeometry(params.size * 0.1, 32, 32);
+        case 'Cube':
+            return new THREE.BoxGeometry(params.size * 0.2, params.size * 0.2, params.size * 0.2);
+        case 'Cone':
+            return new THREE.ConeGeometry(params.size * 0.1, params.size * 0.2, 32);
+    }
+}
+
+function shatterWall(impactPoint, force) {
+    wallPieces.forEach(piece => {
+        if (!piece.userData.broken) {
+            const distance = piece.position.distanceTo(impactPoint);
+            const breakThreshold = 1.5; // Adjust this value to control how easily the wall breaks
+
+            if (distance < breakThreshold) {
+                piece.userData.broken = true;
+                const awayVector = new THREE.Vector3().subVectors(piece.position, impactPoint).normalize();
+                piece.userData.velocity.copy(awayVector).multiplyScalar(force * (1 - distance / breakThreshold));
+                piece.userData.angularVelocity.set(
+                    Math.random() - 0.5,
+                    Math.random() - 0.5,
+                    Math.random() - 0.5
+                ).multiplyScalar(force * 2);
+            }
+        }
+    });
+}
+
+function animate() {
+    requestAnimationFrame(animate);
+
+    const delta = clock.getDelta() * params.speed;
+
+    particles.forEach(particle => {
+        if (!particle.hasCollided) {
+            particle.mesh.position.add(particle.velocity.clone().multiplyScalar(delta * params.magnitude));
+            
+            // Check for collision with wall
+            if (particle.mesh.position.z + particle.mesh.geometry.parameters.radius > params.wallDistance - params.wallThickness / 2) {
+                particle.hasCollided = true;
+                particle.velocity.z *= -0.5; // Reverse and dampen z velocity
+                particle.velocity.x *= 1.5; // Increase x velocity for spread effect
+                particle.velocity.y *= 1.5; // Increase y velocity for spread effect
+                particle.mesh.material.color.setHex(0x00ff00); // Change color on impact
+
+                // Shatter wall at impact point
+                const impactPoint = new THREE.Vector3(
+                    particle.mesh.position.x,
+                    particle.mesh.position.y,
+                    params.wallDistance
+                );
+                shatterWall(impactPoint, params.explosionForce * particle.velocity.length());
+            }
+        } else {
+            // After collision, apply gravity and friction
+            particle.velocity.y -= 0.01 * delta; // Gravity
+            particle.velocity.multiplyScalar(0.99); // Friction
+            particle.mesh.position.add(particle.velocity.clone().multiplyScalar(delta * params.magnitude));
+        }
+    });
+
+    // Update wall pieces
+    wallPieces.forEach(piece => {
+        if (piece.userData.broken) {
+            piece.position.add(piece.userData.velocity.clone().multiplyScalar(delta));
+            piece.rotation.x += piece.userData.angularVelocity.x * delta;
+            piece.rotation.y += piece.userData.angularVelocity.y * delta;
+            piece.rotation.z += piece.userData.angularVelocity.z * delta;
+
+            // Apply gravity and air resistance
+            piece.userData.velocity.y -= 9.8 * delta; // Gravity
+            piece.userData.velocity.multiplyScalar(0.99); // Air resistance
+            piece.userData.angularVelocity.multiplyScalar(0.99); // Angular air resistance
+
+            // Fade out the piece
+            piece.material.opacity *= 0.99;
+        }
+    });
+
+    renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+init();
+</script>
+</body></html>
